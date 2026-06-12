@@ -1,0 +1,16 @@
+services:
+  java-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+    command: ["mvn", "test"]
+    volumes:
+      - ./:/app
+    working_dir: /app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"

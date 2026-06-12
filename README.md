@@ -547,6 +547,51 @@ Clicking a note brings it to front by incrementing its z-index. This ensures pre
 * Resize near boundaries — minimum size constraints enforced
 * Multiple notes — stacking order remains predictable
 
+---
+
+# Docker
+
+## Quick Start
+
+```bash
+docker compose up --build
+```
+
+This runs both services:
+
+| Service       | Description                      | URL                    |
+| ------------- | -------------------------------- | ---------------------- |
+| `java-tests`  | Runs Maven tests (exits on done) | —                      |
+| `frontend`    | Serves built frontend via Nginx  | http://localhost:3000   |
+
+## Individual Services
+
+Run only Java tests:
+
+```bash
+docker compose run --rm java-tests
+```
+
+Build and serve frontend only:
+
+```bash
+docker compose up --build frontend
+```
+
+## Files
+
+```
+├── Dockerfile.java       # Maven build + JDK 21 runtime
+├── frontend/Dockerfile   # Node build + Nginx serve
+└── docker-compose.yml    # orchestrates both services
+```
+
+## Notes
+
+* `java-tests` mounts the project as a volume so tests run against local source.
+* `frontend` builds a production bundle and serves it via Nginx on port 80 (mapped to 3000).
+* No hot-reload in Docker — use `npm run dev` locally for development.
+
 
 # Hierarchy.java
 

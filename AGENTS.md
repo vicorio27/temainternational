@@ -77,3 +77,30 @@ src/
 - Avoid unnecessary re-renders during drag/resize flows.
 - Do not add storage writes inside pointermove handlers.
 - Ensure drag, resize, and delete remain fully isolated — one action must never trigger another.
+
+---
+
+## Docker
+
+### Quick start
+
+```bash
+docker compose up --build
+```
+
+### Services
+
+- `java-tests` — runs `mvn test` in a Maven + JDK 21 container, exits on completion.
+- `frontend` — builds production bundle, serves via Nginx on `http://localhost:3000`.
+
+### Run individually
+
+```bash
+docker compose run --rm java-tests    # Java tests only
+docker compose up --build frontend    # Frontend only
+```
+
+### Notes
+
+- `java-tests` mounts local source as a volume — tests run against your code without rebuilding the image.
+- No hot-reload in Docker; use `npm run dev` locally for frontend development.
