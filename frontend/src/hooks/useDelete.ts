@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Point, Rect } from "../types/note";
 import { RESIZE_HANDLE_SIZE } from "../types/note";
 import { isNearBottomRight, pointInRect } from "../utils/geometry";
@@ -8,7 +8,8 @@ export function useDelete({
 }: {
   onDelete: () => void;
 }) {
-  const deleteConfirmRef = useRef(false);
+  const [showConfirmHint, setShowConfirmHint] = useState(false);
+  const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleDeleteClick = useCallback(
     (e: React.PointerEvent, noteRect: Rect) => {
@@ -25,20 +26,29 @@ export function useDelete({
       );
 
       if (!inResizeArea && pointInRect(point, noteRect)) {
-        if (deleteConfirmRef.current) {
-          deleteConfirmRef.current = false;
+        if (showConfirmHint) {
+          // Second click: delete
+          setShowConfirmHint(false);
+          if (confirmTimeoutRef.current) {
+            clearTimeout(confirmTimeoutRef.current);
+            confirmTimeoutRef.current = null;
+          }
           onDelete();
         } else {
-          deleteConfirmRef.current = true;
-          // Reset after a short delay
-          setTimeout(() => {
-            deleteConfirmRef.current = false;
+          // First click: show hint
+          setShowConfirmHint(true);
+          if (confirmTimeoutRef.current) {
+            clearTimeout(confirmTimeoutRef.current);
+          }
+          confirmTimeoutRef.current = setTimeout(() => {
+            setShowConfirmHint(false);
+            confirmTimeoutRef.current = null;
           }, 1500);
         }
       }
     },
-    [onDelete]
+    [onDelete, showConfirmHint]
   );
 
-  return { handleDeleteClick, deleteConfirmRef };
+  return { handleDeleteClick, showConfirmHint };
 }

@@ -5,11 +5,15 @@ import { loadNotes, saveNotes } from "../utils/persistence";
 interface NotesState {
   notes: Note[];
   maxZIndex: number;
+  draggingId: string | null;
+  pendingPlacement: boolean;
 
   addNote: (note: Note) => void;
   updateNote: (id: string, updates: Partial<Omit<Note, "id">>) => void;
   removeNote: (id: string) => void;
   bringToFront: (id: string) => void;
+  setDraggingId: (id: string | null) => void;
+  setPendingPlacement: (pending: boolean) => void;
   loadFromStorage: () => void;
   persistToStorage: () => void;
 }
@@ -17,6 +21,8 @@ interface NotesState {
 export const useNotesStore = create<NotesState>((set, get) => ({
   notes: [],
   maxZIndex: 0,
+  draggingId: null,
+  pendingPlacement: false,
 
   addNote: (note) =>
     set((state) => {
@@ -46,6 +52,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         maxZIndex: newZIndex,
       };
     }),
+
+  setDraggingId: (id) => set({ draggingId: id }),
+  setPendingPlacement: (pending) => set({ pendingPlacement: pending }),
 
   loadFromStorage: () => {
     const notes = loadNotes();

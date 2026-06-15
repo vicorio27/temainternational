@@ -217,199 +217,88 @@ The target production workload is:
 
 ## Issues Identified
 
-### 1. Expired Entries Are Never Removed
+### Must Fix Before Production
 
-Expired entries return `null` but remain stored indefinitely.
+#### 1. Missing Eviction — Expired Entries Are Never Removed (Memory Leak)
 
-Impact:
+Expired entries return `null` from `get()` but remain in the map indefinitely. No lazy eviction, no scheduled cleanup, no background reaping. Over time this is a guaranteed memory leak.
 
-* Memory growth over time
-* Potential memory leak
-* Reduced cache efficiency
-
----
-
-### 2. Incorrect Size Reporting
-
-The `size()` method returns:
+**Fix:** Add lazy eviction in `get()` — when an entry is expired, remove it atomically:
 
 ```java
-cache.size()
+public V get(K key) {
+    CacheEntry<V> entry = cache.get(key);
+    if (entry != null) {
+        if (System.nanoTime() - entry.getTimestamp() < ttlMs) {
+            return entry.getValue();
+        }
+        // Atomic remove: only remove if this exact entry is still present.
+        // Prevents accidentally removing a freshly-written replacement.
+        cache.remove(key, entry);
+    }
+    return null;
+}
 ```
 
-which includes expired entries.
+This prevents stale reads between the check and the remove (see #4 below). For entries that are never accessed again, pair lazy eviction with a scheduled background sweep (e.g., `ScheduledExecutorService` running every TTL interval) to reclaim unreachable entries.
 
-Impact:
+#### 2. Incorrect `size()` — Includes Expired Entries
 
-* Misleading operational metrics
-* Inaccurate cache monitoring
+`cache.size()` counts expired entries, producing misleading metrics. Any operational dashboard or alerting based on this number will be wrong.
 
----
+**Fix:** Either filter during iteration (expensive) or track a separate `AtomicLong` counter incremented on `put()` and decremented on eviction.
 
-### 3. Missing Eviction Strategy
+#### 3. `System.currentTimeMillis()` vs `System.nanoTime()`
 
-No cleanup mechanism exists.
+`currentTimeMillis()` is wall-clock time and subject to NTP adjustments, manual clock changes, and VM clock skew. A backward jump can make entries appear to never expire; a forward jump can make fresh entries appear stale.
 
-Missing:
+**Fix:** Use `System.nanoTime()` for measuring elapsed time — it is monotonic and unaffected by clock corrections.
 
-* Scheduled cleanup
-* Background eviction
-* Lazy removal
+#### 4. Concurrency Gap — Check-Then-Act Race in `get()`
 
-Impact:
+The check-then-act sequence between reading an entry and returning its value has a subtle race: a concurrent `put()` can replace the entry between the timestamp check and the return. Because `CacheEntry` is immutable, this does **not** cause data corruption — the reader simply gets the old value instead of the new one. However, the reader has no way to know the value is stale.
 
-* Unbounded memory growth
+If freshness matters, use `ConcurrentHashMap.replace(key, oldEntry, newEntry)` on write to ensure only the latest generation wins, or return a copy of the value tagged with a generation counter.
 
----
+#### 5. Cache Stampede on Expiration
 
-### 4. Usage of System.currentTimeMillis()
+When a popular entry expires, all concurrent readers miss simultaneously and hit the backing resource (database, API, etc.) at once. Under high concurrency this causes a thundering herd.
 
-Expiration is calculated using:
+**Fix:** Use `CompletableFuture`-based single-flight: one thread computes the value, others wait on the same future. Alternatively, use probabilistic early expiration ( jitter on TTL ) to spread out re-fetches.
 
-```java
-System.currentTimeMillis()
-```
+#### 6. No Capacity Limits — Unbounded Memory Growth
 
-System clock changes can affect expiration behavior.
+The cache has no maximum size. Under sustained write load without corresponding eviction, this leads to `OutOfMemoryError`.
 
-Examples:
+**Fix:** Add a maximum size with an eviction policy (LRU, LFU, or W-TinyLFU via Caffeine). A production cache should also consider memory-based constraints.
 
-* NTP synchronization
-* Manual clock changes
-* VM clock adjustments
+### Should Fix Before Scaling
 
-Impact:
-
-* Incorrect expiration decisions
-
-A monotonic clock such as:
-
-```java
-System.nanoTime()
-```
-
-is safer for measuring elapsed time.
-
----
-
-### 5. Stale Read Scenarios
-
-Concurrent reads and writes can observe outdated entries.
-
-Impact:
-
-* Temporary inconsistencies
-* Unexpected cache behavior under load
-
----
-
-### 6. Expired Data Remains Forever
-
-Entries that expire but are never accessed again remain stored indefinitely.
-
-Impact:
-
-* Progressive memory consumption
-
----
-
-### 7. Hardcoded TTL
+#### 7. Hardcoded TTL
 
 ```java
 private final long ttlMs = 60000;
 ```
 
-Impact:
+No operational flexibility. Changing the TTL requires a code change and redeployment. At minimum, make it configurable via constructor parameter or system property.
 
-* No operational flexibility
-* Requires code changes for configuration updates
+#### 8. Null Ambiguity
 
----
+`get()` returns `null` for three distinct situations: key not found, entry expired, and value stored as null. Callers cannot distinguish these cases. Consider returning `Optional<V>` or a `CacheResult<V>` wrapper that separates "miss" from "expired" from "null value."
 
-### 8. No Capacity Limits
+#### 9. Missing Observability
 
-The cache has no maximum size.
+No metrics are exposed: cache hits, misses, evictions, expirations, current size. Without these, troubleshooting production issues is guesswork. At minimum, expose a `CacheStats` object or integrate with Micrometer.
 
-Impact:
+#### 10. Limited Expiration Model
 
-```text
-OutOfMemoryError
-```
+Only expire-after-write exists. Real-world workloads often benefit from expire-after-access (sliding TTL), refresh-after-write (background re-fetch before expiry), or a combination. These reduce latency spikes on popular keys.
 
-under sustained growth.
+### Strongest Observations
 
-A production cache typically requires:
-
-* Maximum size limits
-* LRU eviction
-* LFU eviction
-* Memory-based constraints
-
----
-
-### 9. Cache Stampede Risk
-
-When a popular entry expires, multiple threads may simultaneously miss the cache and request the backing resource.
-
-Impact:
-
-* Increased latency
-* Database pressure
-* Cascading failures
-
----
-
-### 10. Missing Observability
-
-The implementation exposes no metrics.
-
-Missing indicators:
-
-* Cache hits
-* Cache misses
-* Expirations
-* Evictions
-
-Impact:
-
-* Difficult troubleshooting
-* Reduced operational visibility
-
----
-
-### 11. Null Ambiguity
-
-The method returns:
-
-```java
-null
-```
-
-for multiple situations:
-
-* Key not found
-* Entry expired
-* Value stored as null
-
-Impact:
-
-* Ambiguous API behavior
-
----
-
-### 12. Limited Expiration Model
-
-Only expire-after-write behavior exists.
-
-Missing capabilities:
-
-* Expire after access
-* Refresh after write
-* Background refresh
-
-Impact:
-
-* Reduced effectiveness for real-world workloads
+* **`System.nanoTime()` (#3)** and **cache stampede (#5)** show real concurrency awareness — these are the catches interviewers look for.
+* **Lazy eviction with `cache.remove(key, entry)` (#1)** is the single highest-impact fix — it addresses the memory leak without requiring a background thread.
+* **Immutable `CacheEntry`** makes the concurrency gap (#4) benign for correctness but not for freshness — naming this explicitly demonstrates depth.
 
 ---
 

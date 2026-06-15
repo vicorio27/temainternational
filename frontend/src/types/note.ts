@@ -36,3 +36,4 @@ export const DEFAULT_NOTE_HEIGHT = 200;
 export const MIN_NOTE_WIDTH = 100;
 export const MIN_NOTE_HEIGHT = 100;
 export const RESIZE_HANDLE_SIZE = 16;
+export const TRASH_ZONE_HEIGHT = 80;

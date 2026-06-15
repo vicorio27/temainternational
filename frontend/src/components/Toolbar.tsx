@@ -1,32 +1,13 @@
 import { useCallback } from "react";
-import {
-  DEFAULT_NOTE_HEIGHT,
-  DEFAULT_NOTE_WIDTH,
-  NOTE_COLORS,
-} from "../types/note";
 import { useNotesStore } from "../state/notesStore";
 
 export function Toolbar() {
-  const addNote = useNotesStore((s) => s.addNote);
-  const persistToStorage = useNotesStore((s) => s.persistToStorage);
+  const pendingPlacement = useNotesStore((s) => s.pendingPlacement);
+  const setPendingPlacement = useNotesStore((s) => s.setPendingPlacement);
 
   const handleAddNote = useCallback(() => {
-    const color =
-      NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)];
-    const x = Math.random() * (window.innerWidth - DEFAULT_NOTE_WIDTH - 100);
-    const y = Math.random() * (window.innerHeight - DEFAULT_NOTE_HEIGHT - 100);
-
-    addNote({
-      id: crypto.randomUUID(),
-      x,
-      y,
-      width: DEFAULT_NOTE_WIDTH,
-      height: DEFAULT_NOTE_HEIGHT,
-      color,
-      zIndex: 0, // will be set by store
-    });
-    persistToStorage();
-  }, [addNote, persistToStorage]);
+    setPendingPlacement(true);
+  }, [setPendingPlacement]);
 
   return (
     <div
@@ -41,7 +22,9 @@ export function Toolbar() {
         gap: 8,
       }}
     >
-      <button onClick={handleAddNote}>Add Note</button>
+      <button onClick={handleAddNote}>
+        {pendingPlacement ? "Click board to place" : "Add Note"}
+      </button>
     </div>
   );
 }

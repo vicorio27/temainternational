@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { InteractionMode, Note } from "../types/note";
-import { RESIZE_HANDLE_SIZE } from "../types/note";
+import { RESIZE_HANDLE_SIZE, TRASH_ZONE_HEIGHT } from "../types/note";
 import { useDrag } from "../hooks/useDrag";
 import { useResize } from "../hooks/useResize";
 import { useDelete } from "../hooks/useDelete";
@@ -14,21 +14,50 @@ export function StickyNote({ note }: StickyNoteProps) {
   const noteRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<InteractionMode>("NONE");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isOverTrash, setIsOverTrash] = useState(false);
 
   const updateNote = useNotesStore((s) => s.updateNote);
   const bringToFront = useNotesStore((s) => s.bringToFront);
   const removeNote = useNotesStore((s) => s.removeNote);
   const persistToStorage = useNotesStore((s) => s.persistToStorage);
+  const setDraggingId = useNotesStore((s) => s.setDraggingId);
 
   // Refs for transient drag/resize data to avoid re-renders
   const positionRef = useRef({ x: note.x, y: note.y });
   const sizeRef = useRef({ width: note.width, height: note.height });
 
+  const isOverTrashRef = useRef(false);
+
+  const handleDelete = useCallback(() => {
+    setIsDeleting(true);
+    setTimeout(() => {
+      removeNote(note.id);
+      persistToStorage();
+    }, 200);
+  }, [note.id, removeNote, persistToStorage]);
+
+  const { handleDeleteClick, showConfirmHint } = useDelete({
+    onDelete: handleDelete,
+  });
+
+  // Trash zone detection during drag
+  const checkTrashZone = useCallback((visualY: number) => {
+    const trashTop = window.innerHeight - TRASH_ZONE_HEIGHT;
+    const overTrash = visualY + 200 / 2 > trashTop; // 200 = default height estimate
+    if (overTrash !== isOverTrashRef.current) {
+      isOverTrashRef.current = overTrash;
+      setIsOverTrash(overTrash);
+    }
+  }, []);
+
   const handleDragStart = useCallback(() => {
     setMode("DRAGGING");
+    setDraggingId(note.id);
     bringToFront(note.id);
     positionRef.current = { x: note.x, y: note.y };
-  }, [bringToFront, note.id, note.x, note.y]);
+    isOverTrashRef.current = false;
+    setIsOverTrash(false);
+  }, [bringToFront, note.id, note.x, note.y, setDraggingId]);
 
   const handleDragMove = useCallback(
     (dx: number, dy: number) => {
@@ -36,14 +65,25 @@ export function StickyNote({ note }: StickyNoteProps) {
         const newX = positionRef.current.x + dx;
         const newY = positionRef.current.y + dy;
         noteRef.current.style.transform = `translate(${newX}px, ${newY}px)`;
+        checkTrashZone(newY);
       }
     },
-    []
+    [checkTrashZone]
   );
 
   const handleDragEnd = useCallback(() => {
     setMode("NONE");
-    // Calculate final position from the transform
+    setDraggingId(null);
+
+    if (isOverTrashRef.current) {
+      // Delete: note was over trash zone
+      setIsOverTrash(false);
+      isOverTrashRef.current = false;
+      handleDelete();
+      return;
+    }
+
+    // Normal drag end: persist position
     if (noteRef.current) {
       const transform = noteRef.current.style.transform;
       const match = transform.match(/translate\((.+?)px,\s*(.+?)px\)/);
@@ -54,7 +94,7 @@ export function StickyNote({ note }: StickyNoteProps) {
         persistToStorage();
       }
     }
-  }, [note.id, updateNote, persistToStorage]);
+  }, [note.id, updateNote, persistToStorage, setDraggingId, handleDelete]);
 
   const { startDrag } = useDrag({
     onDragStart: handleDragStart,
@@ -96,35 +136,25 @@ export function StickyNote({ note }: StickyNoteProps) {
     onResizeEnd: handleResizeEnd,
   });
 
-  const handleDelete = useCallback(() => {
-    setIsDeleting(true);
-    // Short delay for visual feedback before removal
-    setTimeout(() => {
-      removeNote(note.id);
-      persistToStorage();
-    }, 200);
-  }, [note.id, removeNote, persistToStorage]);
-
-  const { handleDeleteClick, deleteConfirmRef } = useDelete({
-    onDelete: handleDelete,
-  });
-
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (mode !== "NONE") return;
 
-      // Check if click is near resize handle
-      const isResizeArea =
-        e.clientX > note.x + note.width - RESIZE_HANDLE_SIZE &&
-        e.clientY > note.y + note.height - RESIZE_HANDLE_SIZE;
+      // Use live bounding rect for resize hit detection (fixes stale position after drag)
+      if (noteRef.current) {
+        const rect = noteRef.current.getBoundingClientRect();
+        const isResizeArea =
+          e.clientX > rect.right - RESIZE_HANDLE_SIZE &&
+          e.clientY > rect.bottom - RESIZE_HANDLE_SIZE;
 
-      if (isResizeArea) {
-        startResize(e);
-      } else {
-        startDrag(e);
+        if (isResizeArea) {
+          startResize(e);
+        } else {
+          startDrag(e);
+        }
       }
     },
-    [mode, note, startDrag, startResize]
+    [mode, startDrag, startResize]
   );
 
   const handleDoubleClick = useCallback(
@@ -142,7 +172,7 @@ export function StickyNote({ note }: StickyNoteProps) {
   return (
     <div
       ref={noteRef}
-      className={`sticky-note ${isDeleting ? "deleting" : ""}`}
+      className={`sticky-note ${isDeleting ? "deleting" : ""} ${isOverTrash ? "over-trash" : ""}`}
       style={{
         position: "absolute",
         left: 0,
@@ -160,7 +190,7 @@ export function StickyNote({ note }: StickyNoteProps) {
       onDoubleClick={handleDoubleClick}
     >
       <div className="note-content">
-        {deleteConfirmRef.current && (
+        {showConfirmHint && (
           <div className="delete-hint">Double-click again to delete</div>
         )}
       </div>

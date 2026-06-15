@@ -31,7 +31,7 @@ public class HierarchyFilter {
         // Stack tracks whether all ancestors at each depth level pass the predicate.
         // Stack size = current depth in the DFS traversal.
         // true at index i means: all ancestors through depth i pass the predicate.
-        boolean[] ancestorPasses = new boolean[estimateMaxDepth(hierarchy)];
+        boolean[] ancestorPasses = new boolean[32];
         int stackSize = 0;
 
         for (int i = 0; i < n; i++) {
@@ -68,13 +68,5 @@ public class HierarchyFilter {
             depths[i] = resultDepths.get(i);
         }
         return new ArrayBasedHierarchy(ids, depths);
-    }
-
-    private static int estimateMaxDepth(Hierarchy hierarchy) {
-        int maxDepth = 0;
-        for (int i = 0; i < hierarchy.size(); i++) {
-            maxDepth = Math.max(maxDepth, hierarchy.depth(i));
-        }
-        return maxDepth + 1;
     }
 }

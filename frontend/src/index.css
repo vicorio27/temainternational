@@ -91,3 +91,22 @@ body {
   border-right: 2px solid rgba(0, 0, 0, 0.3);
   border-bottom: 2px solid rgba(0, 0, 0, 0.3);
 }
+
+.sticky-note.over-trash {
+  opacity: 0.5;
+  transform-origin: center center;
+}
+
+.trash-zone {
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.trash-zone--active {
+  background: rgba(239, 68, 68, 0.15);
+  border-top: 2px dashed rgba(239, 68, 68, 0.4);
+}
+
+.board--placing {
+  cursor: crosshair;
+}
